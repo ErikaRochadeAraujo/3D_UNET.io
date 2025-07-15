@@ -3,3 +3,4 @@ tensorflow==2.6.0  # ou pytorch, dependendo do seu modelo
 pillow==8.3.1
 numpy==1.21.2
 gunicorn==20.1.0  # Para deploy
+nibabel==3.2.1
