@@ -1,4 +1,5 @@
 flask==2.2.3
+werkzeug==2.1.2
 tensorflow==2.10.0  # Versão mais recente estável
 tensorflowjs==3.21.0
 numpy==1.23.5
