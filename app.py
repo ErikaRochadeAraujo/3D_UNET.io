@@ -1,14 +1,19 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, request, jsonify, render_template
 import numpy as np
-from PIL import Image
-import tensorflow as tf  # ou torch, dependendo do seu modelo
-import io
-import os
+import nibabel as nib
+import cv2
+import tensorflow as tf
+from io import BytesIO
 
 app = Flask(__name__)
 
-# Carregar o modelo
-model = tf.keras.models.load_model('models/seu_modelo.h5')
+# Carrega o modelo (coloque seu modelo na pasta static/model/)
+model = tf.keras.models.load_model('static/model/model.h5', 
+    custom_objects={
+        'CustomCategoricalCrossentropy': CustomCategoricalCrossentropy,
+        'dice_coef': dice_coef,
+        # Adicione todas as métricas customizadas aqui
+    })
 
 @app.route('/')
 def home():
@@ -21,34 +26,25 @@ def predict():
     
     file = request.files['file']
     if file.filename == '':
-        return jsonify({'error': 'Nenhum arquivo selecionado'}), 400
+        return jsonify({'error': 'Arquivo inválido'}), 400
+
+    # Processa o NIfTI como no seu Colab
+    nii_img = nib.load(file.stream)
+    volume = nii_img.get_fdata()
     
-    # Processar a imagem
-    img = Image.open(io.BytesIO(file.read()))
-    img = img.convert('RGB')  # Converter se necessário
-    img = img.resize((256, 256))  # Ajustar conforme seu modelo espera
+    # Pré-processamento (igual ao seu código)
+    X = np.zeros((VOLUME_SLICES, IMG_SIZE, IMG_SIZE, 2))
+    for j in range(VOLUME_SLICES):
+        X[j,:,:,0] = cv2.resize(volume[:,:,j+VOLUME_START_AT], (IMG_SIZE, IMG_SIZE))
     
-    # Pré-processamento
-    img_array = np.array(img) / 255.0
-    img_array = np.expand_dims(img_array, axis=0)
-    
-    # Fazer a previsão
-    prediction = model.predict(img_array)
-    class_idx = np.argmax(prediction[0])
-    
-    # Mapear classes (ajuste conforme seu modelo)
-    classes = {
-        0: 'Sem tumor',
-        1: 'Tumor detectado',
-        # Adicione mais classes se necessário
-    }
-    
-    result = {
-        'prediction': classes[class_idx],
-        'confidence': float(prediction[0][class_idx])
-    }
-    
-    return jsonify(result)
+    # Normalização e predição
+    X = X / np.max(X)
+    pred = model.predict(X[np.newaxis, ...])[0]  # Adiciona dimensão de batch
+
+    # Salva a predição como imagem PNG
+    output_img = (pred[60,:,:,1:4] * 255).astype('uint8')  # Fatia 60, classes 1-3
+    _, img_encoded = cv2.imencode('.png', cv2.cvtColor(output_img, cv2.COLOR_RGB2BGR))
+    return img_encoded.tobytes()
 
 if __name__ == '__main__':
     app.run(debug=True)
