@@ -1,44 +1,44 @@
 <!DOCTYPE html>
-<html lang="pt-br">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Detector de Tumores Cerebrais</title>
-    <link rel="stylesheet" href="assets/css/style.css">
+    <link rel="stylesheet" href="/static/css/styles.css">
 </head>
 <body>
     <div class="container">
-        <h1>Detector de Tumores Cerebrais</h1>
-        
-        <div class="upload-section">
-            <input type="file" id="mri-upload" accept=".nii,.nii.gz">
-            <button id="predict-btn">Analisar Imagem</button>
-            <div id="slice-control" class="hidden">
-                <label for="slice-number">Fatia:</label>
-                <input type="range" id="slice-number" min="0" max="155" value="60">
-                <span id="slice-value">60</span>
-            </div>
-        </div>
-        
-        <div class="results">
-            <div class="image-container">
-                <h3>Imagem Original</h3>
-                <canvas id="original-image"></canvas>
-            </div>
-            <div class="image-container">
-                <h3>Resultado da Predição</h3>
-                <canvas id="prediction-result"></canvas>
-            </div>
-        </div>
-        
-        <div id="loading" class="hidden">
-            <p>Processando... Aguarde.</p>
-            <div class="loader"></div>
+        <h1>Envie uma imagem IRM (NIfTI)</h1>
+        <input type="file" id="nii-upload" accept=".nii,.nii.gz">
+        <button onclick="predict()">Prever Tumor</button>
+        <div id="result">
+            <h3>Resultado:</h3>
+            <img id="prediction-img" style="display: none;">
         </div>
     </div>
 
-    <!-- Carrega TensorFlow.js -->
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0/dist/tf.min.js"></script>
-    <script src="assets/js/script.js"></script>
+    <script>
+        async function predict() {
+            const file = document.getElementById('nii-upload').files[0];
+            if (!file) return alert('Selecione um arquivo!');
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const response = await fetch('/predict', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) throw new Error('Erro na predição');
+                
+                const blob = await response.blob();
+                const imgUrl = URL.createObjectURL(blob);
+                document.getElementById('prediction-img').src = imgUrl;
+                document.getElementById('prediction-img').style.display = 'block';
+            } catch (error) {
+                alert(error.message);
+            }
+        }
+    </script>
 </body>
 </html>
