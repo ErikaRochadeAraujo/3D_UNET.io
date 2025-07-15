@@ -7,11 +7,6 @@
     
     <!-- Bibliotecas necessárias -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
-    <!-- Nova biblioteca para NIfTI: niivue -->
-    <script type="module">
-        import { Niivue } from 'https://cdn.jsdelivr.net/npm/@niivue/niivue@0.30.0/dist/index.esm.js';
-        window.Niivue = Niivue; // Expor Niivue globalmente para o script principal
-    </script>
 
     <style>
         * {
@@ -283,6 +278,63 @@
     </div>
 
     <script>
+        // Função para ler o cabeçalho NIfTI manualmente
+        function readNiftiHeader(buffer) {
+            const dataView = new DataView(buffer);
+            const littleEndian = true; // NIfTI é geralmente little-endian
+
+            // Verificação básica da magic number (n+1 ou ni1)
+            const magic = String.fromCharCode(dataView.getUint8(348), dataView.getUint8(349), dataView.getUint8(350), dataView.getUint8(351));
+            if (magic !== 'n+1' && magic !== 'ni1') {
+                throw new Error('Arquivo NIfTI inválido: magic number incorreto.');
+            }
+
+            const dims = [];
+            for (let i = 0; i < 8; i++) {
+                dims.push(dataView.getInt16(40 + i * 2, littleEndian));
+            }
+
+            const datatypeCode = dataView.getInt16(70, littleEndian);
+            const bitpix = dataView.getInt16(72, littleEndian);
+            const voxOffset = dataView.getFloat32(108, littleEndian);
+
+            return {
+                dims: dims,
+                datatypeCode: datatypeCode,
+                bitpix: bitpix,
+                voxOffset: voxOffset
+            };
+        }
+
+        // Função para ler os dados da imagem NIfTI manualmente
+        function readNiftiImage(header, buffer) {
+            const dataView = new DataView(buffer);
+            const littleEndian = true;
+
+            const imageOffset = header.voxOffset;
+            const numVoxels = header.dims[1] * header.dims[2] * header.dims[3];
+            const bytesPerVoxel = header.bitpix / 8;
+
+            let imageData;
+
+            // Suporte a alguns tipos de dados comuns (Float32, Int16, Uint8)
+            switch (header.datatypeCode) {
+                case 16: // DT_INT16
+                    imageData = new Int16Array(buffer, imageOffset, numVoxels);
+                    break;
+                case 64: // DT_FLOAT32
+                    imageData = new Float32Array(buffer, imageOffset, numVoxels);
+                    break;
+                case 2: // DT_UINT8
+                    imageData = new Uint8Array(buffer, imageOffset, numVoxels);
+                    break;
+                default:
+                    throw new Error(`Tipo de dado NIfTI não suportado: ${header.datatypeCode}`);
+            }
+
+            return imageData;
+        }
+
         // Elementos da interface
         const inputArquivo = document.getElementById("nii-upload");
         const statusDisplay = document.getElementById("status");
@@ -345,65 +397,58 @@
             }
         }
 
-        // Função para processar arquivo NIfTI usando Niivue
+        // Função para processar arquivo NIfTI (agora manual)
         async function processarArquivoNifti(arquivo) {
             try {
-                atualizarStatus("📖 Lendo arquivo NIfTI com Niivue...", "info", true);
-                
-                // Niivue precisa de um elemento HTML para inicializar, mesmo que não o usemos para visualização
-                const nv = new Niivue();
-                const volume = {
-                    url: URL.createObjectURL(arquivo),
-                    name: arquivo.name,
-                };
-                
-                // Carrega o volume. Niivue lida com .nii e .nii.gz automaticamente.
-                await nv.addVolume(volume);
-                
-                // Acessa os dados brutos do volume carregado
-                const niftiHeader = nv.volumes[0].nifti.hdr;
-                const niftiImage = nv.volumes[0].nifti.img;
+                atualizarStatus("📖 Lendo arquivo NIfTI...", "info", true);
+                atualizarProgresso(25);
 
-                // Niivue retorna os dados como Uint8Array ou similar, precisamos converter para Float32Array
-                const dadosFloat32 = new Float32Array(niftiImage.length);
-                for (let i = 0; i < niftiImage.length; i++) {
-                    dadosFloat32[i] = niftiImage[i];
+                const buffer = await arquivo.arrayBuffer();
+                let dadosBuffer = buffer;
+
+                // Descomprimir se for .nii.gz (usando pako, que precisará ser incluído novamente)
+                if (arquivo.name.endsWith(".gz")) {
+                    atualizarStatus("📦 Descomprimindo arquivo...", "info", true);
+                    // Para usar pako, você precisará adicionar a linha de script novamente:
+                    // <script src="https://unpkg.com/pako@2.1.0/dist/pako.min.js"></script>
+                    // E garantir que pako esteja disponível globalmente.
+                    // Por simplicidade, para esta versão manual, vamos assumir .nii sem compressão.
+                    throw new Error("Arquivos .nii.gz não suportados nesta versão simplificada. Por favor, use .nii");
                 }
 
-                atualizarStatus("🔄 Pré-processando dados...", "info", true);
+                atualizarProgresso(50);
+
+                const header = readNiftiHeader(dadosBuffer);
+                const imagemData = readNiftiImage(header, dadosBuffer);
                 
-                // As dimensões do cabeçalho NIfTI são [dim, x, y, z, ...]
-                // Precisamos de [x, y, z]
-                const dimensoes = [niftiHeader.dims[1], niftiHeader.dims[2], niftiHeader.dims[3]];
+                atualizarStatus("🔄 Pré-processando dados...", "info", true);
+                atualizarProgresso(75);
+
+                console.log("Dimensões da imagem:", header.dims);
+                console.log("Tipo de dados:", header.datatypeCode);
 
                 return {
-                    dados: dadosFloat32,
-                    header: niftiHeader,
-                    dimensoes: dimensoes
+                    dados: imagemData,
+                    header: header,
+                    dimensoes: header.dims.slice(1, 4) // Remove a primeira dimensão (que é sempre 0)
                 };
 
             } catch (error) {
-                console.error("Erro ao processar arquivo NIfTI com Niivue:", error);
-                throw new Error(`Erro ao processar arquivo NIfTI: ${error.message}. Verifique se o arquivo é um NIfTI válido.`);
+                console.error("Erro ao processar arquivo NIfTI:", error);
+                throw error;
             }
         }
 
         // Função para pré-processar os dados para o modelo
         function preprocessarDados(dados, dimensoes) {
             try {
-                // O modelo espera entrada de [batch, 128, 128, 2]
                 const [altura, largura, profundidade] = dimensoes;
                 
                 console.log("Dimensões originais da imagem NIfTI:", dimensoes);
                 
-                // Para este exemplo, vamos pegar duas fatias da imagem 3D
-                // e redimensionar para 128x128 se necessário
-                
-                // Calcula o índice das fatias centrais
                 const fatiaMedia1 = Math.floor(profundidade * 0.4);
                 const fatiaMedia2 = Math.floor(profundidade * 0.6);
                 
-                // Extrai as duas fatias
                 const fatia1 = new Float32Array(altura * largura);
                 const fatia2 = new Float32Array(altura * largura);
                 
@@ -418,17 +463,14 @@
                     }
                 }
 
-                // Cria tensor das duas fatias
                 let tensor1 = tf.tensor2d(fatia1, [altura, largura]);
                 let tensor2 = tf.tensor2d(fatia2, [altura, largura]);
 
-                // Redimensiona para 128x128 se necessário
                 if (altura !== 128 || largura !== 128) {
                     tensor1 = tf.image.resizeBilinear(tensor1.expandDims(2), [128, 128]).squeeze(2);
                     tensor2 = tf.image.resizeBilinear(tensor2.expandDims(2), [128, 128]).squeeze(2);
                 }
 
-                // Normaliza os dados (0-1)
                 const min1 = tensor1.min();
                 const max1 = tensor1.max();
                 const min2 = tensor2.min();
@@ -437,15 +479,11 @@
                 tensor1 = tensor1.sub(min1).div(max1.sub(min1).add(1e-8));
                 tensor2 = tensor2.sub(min2).div(max2.sub(min2).add(1e-8));
 
-                // Combina as duas fatias em um tensor de 2 canais
                 const tensorCombinado = tf.stack([tensor1, tensor2], 2);
-                
-                // Adiciona dimensão de batch
                 const tensorFinal = tensorCombinado.expandDims(0);
 
                 console.log("Formato do tensor final para o modelo:", tensorFinal.shape);
 
-                // Limpa tensors intermediários
                 tensor1.dispose();
                 tensor2.dispose();
                 tensorCombinado.dispose();
@@ -470,17 +508,12 @@
 
                 const previsao = modelo.predict(tensorEntrada);
                 
-                // A previsão é um tensor de saída (segmentação)
-                // O modelo produz uma segmentação com 4 classes (softmax)
-                // Precisamos obter a classe com maior probabilidade para cada pixel
-                const segmentacaoTensor = tf.argMax(previsao, -1); // Pega o índice da classe com maior probabilidade
-                const segmentacaoArray = await segmentacaoTensor.data(); // Converte para array JavaScript
+                const segmentacaoTensor = tf.argMax(previsao, -1);
+                const segmentacaoArray = await segmentacaoTensor.data();
 
-                // Limpar tensors intermediários
                 previsao.dispose();
                 segmentacaoTensor.dispose();
 
-                // Calcular estatísticas (percentuais) - Mantenha isso
                 const totalPixels = segmentacaoArray.length;
                 const estatisticas = {
                     classe0: 0, // Background
@@ -505,8 +538,7 @@
                     tumorRealcado: (estatisticas.classe3 / totalPixels * 100).toFixed(2)
                 };
 
-                // Retorna tanto os percentuais quanto os dados brutos da segmentação
-                return { porcentagens, segmentacaoArray, dimensoesSaida: [128, 128] }; // [altura, largura] - Fixado para 128x128
+                return { porcentagens, segmentacaoArray, dimensoesSaida: [128, 128] };
 
             } catch (error) {
                 console.error("Erro na previsão:", error);
@@ -518,38 +550,34 @@
         function desenharSegmentacao(segmentacaoArray, dimensoesSaida) {
             const [altura, largura] = dimensoesSaida;
 
-            // Definir o tamanho do canvas
             segmentationCanvas.width = largura;
             segmentationCanvas.height = altura;
 
-            // Criar um objeto ImageData para manipular os pixels
             const imageData = ctx.createImageData(largura, altura);
-            const data = imageData.data; // Array de pixels (RGBA)
+            const data = imageData.data;
 
-            // Definir cores para cada classe (ajuste conforme o notebook)
             const cores = [
-                [0, 0, 0, 0],     // Classe 0: Transparente (ou preto, se preferir) - Background
-                [255, 0, 0, 255], // Classe 1: Vermelho - Necrose
-                [0, 0, 255, 255], // Classe 2: Azul - Edema
-                [0, 255, 0, 255]  // Classe 3: Verde - Tumor Realçado
+                [0, 0, 0, 0],     // Classe 0: Background (transparente)
+                [255, 0, 0, 255], // Classe 1: Necrose (vermelho)
+                [0, 0, 255, 255], // Classe 2: Edema (azul)
+                [0, 255, 0, 255]  // Classe 3: Tumor Realçado (verde)
             ];
 
             for (let i = 0; i < segmentacaoArray.length; i++) {
                 const classe = segmentacaoArray[i];
                 const cor = cores[classe];
 
-                const pixelIndex = i * 4; // Cada pixel tem 4 componentes (RGBA)
-                data[pixelIndex] = cor[0];     // R
-                data[pixelIndex + 1] = cor[1]; // G
-                data[pixelIndex + 2] = cor[2]; // B
-                data[pixelIndex + 3] = cor[3]; // A
+                const pixelIndex = i * 4;
+                data[pixelIndex] = cor[0];
+                data[pixelIndex + 1] = cor[1];
+                data[pixelIndex + 2] = cor[2];
+                data[pixelIndex + 3] = cor[3];
             }
 
-            // Desenhar a imagem no canvas
             ctx.putImageData(imageData, 0, 0);
         }
 
-        // Função para exibir resultados (modificada para chamar desenharSegmentacao)
+        // Função para exibir resultados
         function exibirResultados(resultados) {
             const { porcentagens, segmentacaoArray, dimensoesSaida } = resultados;
 
