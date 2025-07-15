@@ -1,17 +1,24 @@
 <!DOCTYPE html>
 <html>
-<head>
-    <title>Detector de Tumores Cerebrais</title>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0"></script>
-    <script src="static/js/app.js"></script>
-</head>
 <body>
-    <h1>Envie uma imagem IRM (NIfTI)</h1>
-    <input type="file" id="nii-upload" accept=".nii,.nii.gz">
-    <button onclick="predict()">Analisar</button>
-    <div id="results">
-        <h3>Resultado:</h3>
-        <canvas id="prediction"></canvas>
-    </div>
+  <input type="file" id="mri-upload">
+  <button onclick="predict()">Prever Tumor</button>
+  <img id="result">
+
+  <script>
+    async function predict() {
+      const file = document.getElementById('mri-upload').files[0];
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch('https://brain-tumor-api-qs69.onrender.com', {
+        method: 'POST',
+        body: formData
+      });
+      
+      const blob = await response.blob();
+      document.getElementById('result').src = URL.createObjectURL(blob);
+    }
+  </script>
 </body>
 </html>
