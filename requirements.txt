@@ -1,6 +1,6 @@
-flask==2.0.1
-tensorflow==2.6.0  # ou pytorch, dependendo do seu modelo
-pillow==8.3.1
-numpy==1.21.2
-gunicorn==20.1.0  # Para deploy
-nibabel==3.2.1
+flask==2.2.3
+tensorflow==2.10.0  # Versão mais recente estável
+tensorflowjs==3.21.0
+numpy==1.23.5
+opencv-python-headless==4.7.0.72
+nibabel==5.1.0
