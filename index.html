@@ -6,31 +6,13 @@
     <title>Analisador de Ressonância Magnética - IA</title>
     
     <!-- Bibliotecas necessárias -->
-   
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
-    <script src="https://unpkg.com/pako@2.1.0/dist/pako.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/nifti-reader-js@0.5.4/release/current/nifti-reader.min.js"></script>
-    
-    <script>
-        // Este script vai tentar acessar NIFTI imediatamente após o carregamento.
-        // Se ele ainda não estiver definido, o problema é na própria biblioteca.
-        try {
-            if (typeof NIFTI === 'undefined' ) {
-                console.error('DEBUG: NIFTI ainda não está definido imediatamente após o script da biblioteca.');
-            } else {
-                console.log('DEBUG: NIFTI está definido. Versão:', NIFTI.version);
-            }
-        } catch (e) {
-            console.error('DEBUG: Erro ao tentar acessar NIFTI:', e);
-        }
+    <!-- Nova biblioteca para NIfTI: niivue -->
+    <script type="module">
+        import { Niivue } from 'https://cdn.jsdelivr.net/npm/@niivue/niivue@0.30.0/dist/index.esm.js';
+        window.Niivue = Niivue; // Expor Niivue globalmente para o script principal
     </script>
 
-<!-- O restante do seu script principal (inicializarAplicacao, etc.) virá aqui -->
-<script>
-    // ... todo o código da função inicializarAplicacao e o listener do arquivo ...
-</script>
-
-    
     <style>
         * {
             margin: 0;
@@ -284,6 +266,8 @@
                         Os resultados da análise aparecerão aqui após o upload do arquivo.
                     </p>
                 </div>
+                <!-- Adicione este canvas para a visualização da segmentação -->
+                <canvas id="segmentation-canvas" style="width: 100%; height: auto; border: 1px solid #ccc; margin-top: 20px;"></canvas>
             </div>
         </div>
 
@@ -300,113 +284,107 @@
 
     <script>
         // Elementos da interface
-        const inputArquivo = document.getElementById('nii-upload');
-        const statusDisplay = document.getElementById('status');
-        const resultsContent = document.getElementById('results-content');
-        const progressBar = document.getElementById('progress-bar');
-        const progressFill = document.getElementById('progress-fill');
+        const inputArquivo = document.getElementById("nii-upload");
+        const statusDisplay = document.getElementById("status");
+        const resultsContent = document.getElementById("results-content");
+        const progressBar = document.getElementById("progress-bar");
+        const progressFill = document.getElementById("progress-fill");
+        const segmentationCanvas = document.getElementById("segmentation-canvas");
+        const ctx = segmentationCanvas.getContext("2d");
 
         // Variáveis globais
         let modelo = null;
         let modeloCarregado = false;
 
         // Função para atualizar o status
-        function atualizarStatus(mensagem, tipo = 'info', mostrarLoading = false) {
-            const loading = mostrarLoading ? '<span class="loading"></span>' : '';
+        function atualizarStatus(mensagem, tipo = "info", mostrarLoading = false) {
+            const loading = mostrarLoading ? "<span class=\"loading\"></span>" : "";
             statusDisplay.innerHTML = loading + mensagem;
             
-            // Remove classes anteriores
-            statusDisplay.parentElement.classList.remove('error', 'success');
+            statusDisplay.parentElement.classList.remove("error", "success");
             
-            // Adiciona nova classe se especificada
-            if (tipo === 'error') {
-                statusDisplay.parentElement.classList.add('error');
-            } else if (tipo === 'success') {
-                statusDisplay.parentElement.classList.add('success');
+            if (tipo === "error") {
+                statusDisplay.parentElement.classList.add("error");
+            } else if (tipo === "success") {
+                statusDisplay.parentElement.classList.add("success");
             }
         }
 
         // Função para atualizar a barra de progresso
         function atualizarProgresso(porcentagem) {
             if (porcentagem > 0) {
-                progressBar.style.display = 'block';
-                progressFill.style.width = porcentagem + '%';
+                progressBar.style.display = "block";
+                progressFill.style.width = porcentagem + "%";
             } else {
-                progressBar.style.display = 'none';
+                progressBar.style.display = "none";
             }
         }
 
         // Função para carregar o modelo
         async function carregarModelo() {
             try {
-                atualizarStatus('🤖 Carregando modelo de IA...', 'info', true);
+                atualizarStatus("🤖 Carregando modelo de IA...", "info", true);
                 atualizarProgresso(20);
                 
-                // Carrega o modelo do TensorFlow.js
-                modelo = await tf.loadLayersModel('./modelo_web/model.json');
+                modelo = await tf.loadLayersModel("./modelo_web/model.json");
                 
                 atualizarProgresso(100);
-                atualizarStatus('✅ Modelo carregado com sucesso! Selecione um arquivo .nii para análise.', 'success');
+                atualizarStatus("✅ Modelo carregado com sucesso! Selecione um arquivo .nii para análise.", "success");
                 modeloCarregado = true;
                 
-                console.log('Modelo carregado:', modelo);
-                console.log('Formato de entrada esperado:', modelo.inputs[0].shape);
-                console.log('Formato de saída:', modelo.outputs[0].shape);
+                console.log("Modelo carregado:", modelo);
+                console.log("Formato de entrada esperado:", modelo.inputs[0].shape);
+                console.log("Formato de saída:", modelo.outputs[0].shape);
                 
                 setTimeout(() => atualizarProgresso(0), 2000);
                 
             } catch (error) {
-                console.error('Erro ao carregar modelo:', error);
-                atualizarStatus('❌ Erro ao carregar o modelo. Verifique se os arquivos estão no local correto.', 'error');
+                console.error("Erro ao carregar modelo:", error);
+                atualizarStatus("❌ Erro ao carregar o modelo. Verifique se os arquivos estão no local correto.", "error");
                 atualizarProgresso(0);
             }
         }
 
-        // Função para processar arquivo NIfTI
+        // Função para processar arquivo NIfTI usando Niivue
         async function processarArquivoNifti(arquivo) {
             try {
-                atualizarStatus('📖 Lendo arquivo NIfTI...', 'info', true);
-                atualizarProgresso(25);
-
-                // Lê o arquivo como ArrayBuffer
-                const buffer = await arquivo.arrayBuffer();
+                atualizarStatus("📖 Lendo arquivo NIfTI com Niivue...", "info", true);
                 
-                // Verifica se é um arquivo .nii.gz (comprimido)
-                let dadosBuffer = buffer;
-                if (arquivo.name.endsWith('.gz')) {
-                    atualizarStatus('📦 Descomprimindo arquivo...', 'info', true);
-                    dadosBuffer = pako.inflate(new Uint8Array(buffer)).buffer;
+                // Niivue precisa de um elemento HTML para inicializar, mesmo que não o usemos para visualização
+                const nv = new Niivue();
+                const volume = {
+                    url: URL.createObjectURL(arquivo),
+                    name: arquivo.name,
+                };
+                
+                // Carrega o volume. Niivue lida com .nii e .nii.gz automaticamente.
+                await nv.addVolume(volume);
+                
+                // Acessa os dados brutos do volume carregado
+                const niftiHeader = nv.volumes[0].nifti.hdr;
+                const niftiImage = nv.volumes[0].nifti.img;
+
+                // Niivue retorna os dados como Uint8Array ou similar, precisamos converter para Float32Array
+                const dadosFloat32 = new Float32Array(niftiImage.length);
+                for (let i = 0; i < niftiImage.length; i++) {
+                    dadosFloat32[i] = niftiImage[i];
                 }
 
-                atualizarProgresso(50);
-
-                // Verifica se é um arquivo NIfTI válido
-                if (!NIFTI.isNIFTI(dadosBuffer)) {
-                    throw new Error("O arquivo selecionado não é um arquivo NIfTI válido.");
-                }
-
-                // Lê o header e os dados da imagem
-                const header = NIFTI.readHeader(dadosBuffer);
-                const imagemData = NIFTI.readImage(header, dadosBuffer);
+                atualizarStatus("🔄 Pré-processando dados...", "info", true);
                 
-                atualizarStatus('🔄 Pré-processando dados...', 'info', true);
-                atualizarProgresso(75);
+                // As dimensões do cabeçalho NIfTI são [dim, x, y, z, ...]
+                // Precisamos de [x, y, z]
+                const dimensoes = [niftiHeader.dims[1], niftiHeader.dims[2], niftiHeader.dims[3]];
 
-                console.log('Dimensões da imagem:', header.dims);
-                console.log('Tipo de dados:', header.datatypeCode);
-
-                // Converte para Float32Array
-                const dadosFloat32 = new Float32Array(imagemData);
-                
                 return {
                     dados: dadosFloat32,
-                    header: header,
-                    dimensoes: header.dims.slice(1, 4) // Remove a primeira dimensão (que é sempre 0)
+                    header: niftiHeader,
+                    dimensoes: dimensoes
                 };
 
             } catch (error) {
-                console.error('Erro ao processar arquivo NIfTI:', error);
-                throw error;
+                console.error("Erro ao processar arquivo NIfTI com Niivue:", error);
+                throw new Error(`Erro ao processar arquivo NIfTI: ${error.message}. Verifique se o arquivo é um NIfTI válido.`);
             }
         }
 
@@ -416,7 +394,7 @@
                 // O modelo espera entrada de [batch, 128, 128, 2]
                 const [altura, largura, profundidade] = dimensoes;
                 
-                console.log('Dimensões originais:', dimensoes);
+                console.log("Dimensões originais da imagem NIfTI:", dimensoes);
                 
                 // Para este exemplo, vamos pegar duas fatias da imagem 3D
                 // e redimensionar para 128x128 se necessário
@@ -465,7 +443,7 @@
                 // Adiciona dimensão de batch
                 const tensorFinal = tensorCombinado.expandDims(0);
 
-                console.log('Formato do tensor final:', tensorFinal.shape);
+                console.log("Formato do tensor final para o modelo:", tensorFinal.shape);
 
                 // Limpa tensors intermediários
                 tensor1.dispose();
@@ -479,48 +457,40 @@
                 return tensorFinal;
 
             } catch (error) {
-                console.error('Erro no pré-processamento:', error);
+                console.error("Erro no pré-processamento:", error);
                 throw error;
             }
         }
 
-        // Função para fazer a previsão
+        // Função para fazer a previsão e retornar a segmentação bruta
         async function fazerPrevisao(tensorEntrada) {
             try {
-                atualizarStatus('🧠 Executando análise com IA...', 'info', true);
+                atualizarStatus("🧠 Executando análise com IA...", "info", true);
                 atualizarProgresso(90);
 
-                // Faz a previsão
                 const previsao = modelo.predict(tensorEntrada);
-                const resultadoArray = await previsao.data();
+                
+                // A previsão é um tensor de saída (segmentação)
+                // O modelo produz uma segmentação com 4 classes (softmax)
+                // Precisamos obter a classe com maior probabilidade para cada pixel
+                const segmentacaoTensor = tf.argMax(previsao, -1); // Pega o índice da classe com maior probabilidade
+                const segmentacaoArray = await segmentacaoTensor.data(); // Converte para array JavaScript
 
-                console.log('Resultado da previsão:', resultadoArray);
-                console.log('Formato da saída:', previsao.shape);
+                // Limpar tensors intermediários
+                previsao.dispose();
+                segmentacaoTensor.dispose();
 
-                // O modelo produz uma segmentação com 4 classes
-                // Vamos calcular estatísticas básicas
-                const totalPixels = resultadoArray.length / 4; // 4 classes
+                // Calcular estatísticas (percentuais) - Mantenha isso
+                const totalPixels = segmentacaoArray.length;
                 const estatisticas = {
                     classe0: 0, // Background
                     classe1: 0, // Necrose
                     classe2: 0, // Edema
-                    classe3: 0  // Tumor realçado
+                    classe3: 0  // Tumor Realçado
                 };
 
-                // Conta pixels por classe (argmax)
                 for (let i = 0; i < totalPixels; i++) {
-                    const baseIdx = i * 4;
-                    let maxIdx = 0;
-                    let maxVal = resultadoArray[baseIdx];
-                    
-                    for (let j = 1; j < 4; j++) {
-                        if (resultadoArray[baseIdx + j] > maxVal) {
-                            maxVal = resultadoArray[baseIdx + j];
-                            maxIdx = j;
-                        }
-                    }
-                    
-                    switch(maxIdx) {
+                    switch(segmentacaoArray[i]) {
                         case 0: estatisticas.classe0++; break;
                         case 1: estatisticas.classe1++; break;
                         case 2: estatisticas.classe2++; break;
@@ -528,7 +498,6 @@
                     }
                 }
 
-                // Calcula porcentagens
                 const porcentagens = {
                     background: (estatisticas.classe0 / totalPixels * 100).toFixed(2),
                     necrose: (estatisticas.classe1 / totalPixels * 100).toFixed(2),
@@ -536,36 +505,70 @@
                     tumorRealcado: (estatisticas.classe3 / totalPixels * 100).toFixed(2)
                 };
 
-                // Limpa memória
-                previsao.dispose();
-                tensorEntrada.dispose();
-
-                return porcentagens;
+                // Retorna tanto os percentuais quanto os dados brutos da segmentação
+                return { porcentagens, segmentacaoArray, dimensoesSaida: [128, 128] }; // [altura, largura] - Fixado para 128x128
 
             } catch (error) {
-                console.error('Erro na previsão:', error);
+                console.error("Erro na previsão:", error);
                 throw error;
             }
         }
 
-        // Função para exibir resultados
+        // Nova função para desenhar a segmentação no canvas
+        function desenharSegmentacao(segmentacaoArray, dimensoesSaida) {
+            const [altura, largura] = dimensoesSaida;
+
+            // Definir o tamanho do canvas
+            segmentationCanvas.width = largura;
+            segmentationCanvas.height = altura;
+
+            // Criar um objeto ImageData para manipular os pixels
+            const imageData = ctx.createImageData(largura, altura);
+            const data = imageData.data; // Array de pixels (RGBA)
+
+            // Definir cores para cada classe (ajuste conforme o notebook)
+            const cores = [
+                [0, 0, 0, 0],     // Classe 0: Transparente (ou preto, se preferir) - Background
+                [255, 0, 0, 255], // Classe 1: Vermelho - Necrose
+                [0, 0, 255, 255], // Classe 2: Azul - Edema
+                [0, 255, 0, 255]  // Classe 3: Verde - Tumor Realçado
+            ];
+
+            for (let i = 0; i < segmentacaoArray.length; i++) {
+                const classe = segmentacaoArray[i];
+                const cor = cores[classe];
+
+                const pixelIndex = i * 4; // Cada pixel tem 4 componentes (RGBA)
+                data[pixelIndex] = cor[0];     // R
+                data[pixelIndex + 1] = cor[1]; // G
+                data[pixelIndex + 2] = cor[2]; // B
+                data[pixelIndex + 3] = cor[3]; // A
+            }
+
+            // Desenhar a imagem no canvas
+            ctx.putImageData(imageData, 0, 0);
+        }
+
+        // Função para exibir resultados (modificada para chamar desenharSegmentacao)
         function exibirResultados(resultados) {
+            const { porcentagens, segmentacaoArray, dimensoesSaida } = resultados;
+
             const html = `
                 <div class="result-item">
                     <span class="result-label">🔵 Background:</span>
-                    <span class="result-value">${resultados.background}%</span>
+                    <span class="result-value">${porcentagens.background}%</span>
                 </div>
                 <div class="result-item">
                     <span class="result-label">🔴 Necrose:</span>
-                    <span class="result-value">${resultados.necrose}%</span>
+                    <span class="result-value">${porcentagens.necrose}%</span>
                 </div>
                 <div class="result-item">
                     <span class="result-label">🟡 Edema:</span>
-                    <span class="result-value">${resultados.edema}%</span>
+                    <span class="result-value">${porcentagens.edema}%</span>
                 </div>
                 <div class="result-item">
                     <span class="result-label">🟢 Tumor Realçado:</span>
-                    <span class="result-value">${resultados.tumorRealcado}%</span>
+                    <span class="result-value">${porcentagens.tumorRealcado}%</span>
                 </div>
                 <div style="margin-top: 15px; padding: 10px; background: #e3f2fd; border-radius: 5px;">
                     <small style="color: #1976d2;">
@@ -576,12 +579,14 @@
             `;
             
             resultsContent.innerHTML = html;
+
+            desenharSegmentacao(segmentacaoArray, dimensoesSaida);
         }
 
         // Event listener para upload de arquivo
-        inputArquivo.addEventListener('change', async function(evento) {
+        inputArquivo.addEventListener("change", async function(evento) {
             if (!modeloCarregado) {
-                atualizarStatus('⏳ Aguarde o modelo terminar de carregar...', 'error');
+                atualizarStatus("⏳ Aguarde o modelo terminar de carregar...", "error");
                 return;
             }
 
@@ -590,28 +595,22 @@
             const arquivo = evento.target.files[0];
             
             try {
-                atualizarStatus(`📁 Processando: ${arquivo.name}`, 'info', true);
+                atualizarStatus(`📁 Processando: ${arquivo.name}`, "info", true);
                 
-                // Processa o arquivo NIfTI
                 const dadosProcessados = await processarArquivoNifti(arquivo);
-                
-                // Pré-processa os dados
                 const tensorEntrada = preprocessarDados(dadosProcessados.dados, dadosProcessados.dimensoes);
-                
-                // Faz a previsão
                 const resultados = await fazerPrevisao(tensorEntrada);
                 
-                // Exibe os resultados
                 exibirResultados(resultados);
                 
                 atualizarProgresso(100);
-                atualizarStatus('✅ Análise concluída com sucesso!', 'success');
+                atualizarStatus("✅ Análise concluída com sucesso!", "success");
                 
                 setTimeout(() => atualizarProgresso(0), 3000);
 
             } catch (error) {
-                console.error('Erro durante o processamento:', error);
-                atualizarStatus(`❌ Erro: ${error.message}`, 'error');
+                console.error("Erro durante o processamento:", error);
+                atualizarStatus(`❌ Erro: ${error.message}`, "error");
                 atualizarProgresso(0);
                 
                 resultsContent.innerHTML = `
@@ -627,12 +626,14 @@
         });
 
         // Inicia o carregamento do modelo quando a página carrega
-        window.addEventListener('load', carregarModelo);
+        window.addEventListener("load", carregarModelo);
 
         // Log de informações do TensorFlow.js
-        console.log('TensorFlow.js versão:', tf.version.tfjs);
-        console.log('Backend:', tf.getBackend());
+        console.log("TensorFlow.js versão:", tf.version.tfjs);
+        console.log("Backend:", tf.getBackend());
     </script>
 </body>
 </html>
+
+
 
