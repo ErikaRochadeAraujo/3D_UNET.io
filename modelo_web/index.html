@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Predição de Tumores Cerebrais</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>Análise de IRM para Tumores Cerebrais</h1>
+        <p>Envie uma imagem de ressonância magnética para análise</p>
+        
+        <form id="upload-form">
+            <input type="file" id="file-input" accept="image/*" required>
+            <button type="submit">Analisar Imagem</button>
+        </form>
+        
+        <div id="result" style="display: none;">
+            <h2>Resultado:</h2>
+            <p id="prediction-text"></p>
+            <p id="confidence"></p>
+        </div>
+        
+        <div id="image-preview" style="margin-top: 20px;"></div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+</body>
+</html>
