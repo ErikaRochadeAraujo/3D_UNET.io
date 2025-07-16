@@ -1,8 +1,8 @@
 flask==2.2.3
-werkzeug==2.1.2
+werkzeug==2.2.3
 tensorflow==2.10.0  # Versão mais recente estável
 tensorflowjs==3.21.0
-numpy==1.23.5
-opencv-python-headless==4.7.0.72
+numpy==1.24.3
+opencv-python-headless==4.8.0.74
 nibabel==5.1.0
-gunicorn==20.1.0 
+gunicorn==21.2.0
