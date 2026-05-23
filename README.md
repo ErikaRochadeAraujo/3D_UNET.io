@@ -3,3 +3,5 @@
 
 https://mri-tumor-brain.streamlit.app/
 
+
+Para usar e testar você pode usar os arquivos que deixo disponíveis aqui: Exemplos
